@@ -11,7 +11,7 @@ const {
 // ================= CONFIG =================
 const BAD_WORDS = ["nigga", "nigger", "nga"];
 const SPAM_LIMIT = 5;
-const SPAM_TIME = 10000; // 10 seconds
+const SPAM_TIME = 1000; // 10 seconds
 const DUPLICATE_LIMIT = 3;
 const CAPS_PERCENT = 0.7;
 const CAPS_MIN = 8;
