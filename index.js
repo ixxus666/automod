@@ -153,7 +153,7 @@ client.on("interactionCreate", async interaction => {
   const f = getFeatures(gid);
 
   // Default ephemeral unless one of these commands
-  const publicCommands = ["timeout", "warnings", "kick", "ban"];
+  const publicCommands = ["kick", "ban"];
   const ephemeral = !publicCommands.includes(interaction.commandName);
 
   // Check Manage Server permission for all except public commands
