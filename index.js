@@ -154,13 +154,13 @@ client.on("interactionCreate", async interaction => {
 
   // Default ephemeral unless one of these commands
   const publicCommands = ["kick", "ban"];
-  const reply = (content, ephemeral=false) => interaction.reply({ content, ephemeral });
+  const ephemeral = !isPublic(interaction.commandName);
 
   // Check Manage Server permission for all except public commands
   if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
     return interaction.reply({ content: "❌ Manage Server required.", ephemeral: true });
   }
-
+const reply = (content, force=ephemeral) => interaction.reply({ content, ephemeral: force });  
   
 
   // ---------------- AUTOMOD ----------------
@@ -189,17 +189,17 @@ client.on("interactionCreate", async interaction => {
     return reply(`⚠️ ${user.tag} warned (**${count}** total)\n📝 Reason: ${reason}`);
   }
 
-  if (interaction.commandName === "warnings") {
-    const user = interaction.options.getUser("user");
-    const count = warnings.get(`${gid}:${user.id}`) || 0;
-    return reply(`📊 ${user.tag} has **${count}** warning(s).`, false);
-  }
+if(interaction.commandName === "warnings") {
+  const user = interaction.options.getUser("user");
+  const count = warnings.get(`${gid}:${user.id}`) || 0;
+  return reply(`📊 ${user.tag} has **${count}** warning(s).`, false); // visible to everyone
+}
 
-  if (interaction.commandName === "clearwarnings") {
-    const user = interaction.options.getUser("user");
-    warnings.delete(`${gid}:${user.id}`);
-    return reply(`🧹 Cleared warnings for ${user.tag}`);
-  }
+if(interaction.commandName === "clearwarnings") {
+  const user = interaction.options.getUser("user");
+  warnings.delete(`${gid}:${user.id}`);
+  return reply(`🧹 Cleared warnings for ${user.tag}.`, false); // visible to everyone
+}
 
   // ---------------- ANTI-RAID ----------------
   if (interaction.commandName === "antiraid") {
