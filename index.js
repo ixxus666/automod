@@ -1,143 +1,190 @@
-require('dotenv').config();
-const { Client, GatewayIntentBits, Partials, PermissionsBitField } = require('discord.js');
+
+const {
+  Client,
+  GatewayIntentBits,
+  Partials,
+  PermissionsBitField
+} = require("discord.js");
 
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers
-    ],
-    partials: [Partials.Channel]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
+  ],
+  partials: [Partials.Channel]
 });
 
-// ===== CONFIG =====
-const badWords = ["badword1", "badword2", "example"]; // add your words
-const spamLimit = 5; // messages
-const spamTime = 5000; // ms
-const muteTime = 10 * 60 * 1000; // 10 minutes in ms
-const logChannelId = process.env.LOG_CHANNEL_ID;
+/* ================= CONFIG ================= */
 
-// ===== DATA TRACKERS =====
+const BAD_WORDS = ["nigga", "nigger"];
+const LINK_REGEX = /(https?:\/\/[^\s]+)/gi;
+
+// Spam
+const SPAM_LIMIT = 5;
+const SPAM_TIME = 5000;
+
+// Anti-raid
+const RAID_JOIN_LIMIT = 5;     // joins
+const RAID_TIME = 10000;       // 10 seconds
+const LOCKDOWN_TIME = 300000;  // 5 minutes
+
+/* ========================================== */
+
+const automodEnabled = new Map();
+const antiRaidEnabled = new Map();
 const spamMap = new Map();
-const mutedUsers = new Map();
+const joinMap = new Map();
+const lockedGuilds = new Set();
 
-// ===== BOT READY =====
-client.once('ready', () => {
-    console.log(`Logged in as ${client.user.tag}`);
+client.once("ready", () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
-// ===== MESSAGE HANDLER =====
-client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
+/* ========= SLASH COMMANDS ========= */
 
-    const lower = message.content.toLowerCase();
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
 
-    // --- BAD WORD FILTER ---
-    for (const word of badWords) {
-        if (lower.includes(word)) {
-            await message.delete().catch(() => {});
-            await warnUser(message, `Used a banned word: "${word}"`);
-            return;
-        }
+  if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+    return interaction.reply({
+      content: "❌ You need **Manage Server** permission.",
+      ephemeral: true
+    });
+  }
+
+  // /automod
+  if (interaction.commandName === "automod") {
+    const sub = interaction.options.getSubcommand();
+
+    if (sub === "on") {
+      automodEnabled.set(interaction.guildId, true);
+      return interaction.reply("✅ Automod **enabled**.");
     }
 
-    // --- INVITE/LINK BLOCK ---
-    const inviteRegex = /(discord\.gg\/|discordapp\.com\/invite\/)/i;
-    const linkRegex = /(https?:\/\/[^\s]+)/i;
-
-    if (inviteRegex.test(message.content)) {
-        await message.delete().catch(() => {});
-        await warnUser(message, "Posting Discord invites is not allowed!");
-        return;
+    if (sub === "off") {
+      automodEnabled.set(interaction.guildId, false);
+      return interaction.reply("❌ Automod **disabled**.");
     }
 
-    // Optional: block all links
-    // if (linkRegex.test(message.content)) { ... }
+    if (sub === "status") {
+      return interaction.reply(
+        `📊 Automod is **${automodEnabled.get(interaction.guildId) ? "ON" : "OFF"}**`
+      );
+    }
+  }
 
-    // --- MENTION SPAM ---
-    const mentions = message.mentions.members.size;
-    if (mentions >= 3 || message.mentions.everyone) {
-        await message.delete().catch(() => {});
-        await warnUser(message, "Do not spam mentions!");
-        return;
+  // /antiraid
+  if (interaction.commandName === "antiraid") {
+    const sub = interaction.options.getSubcommand();
+
+    if (sub === "on") {
+      antiRaidEnabled.set(interaction.guildId, true);
+      return interaction.reply("🚨 Anti-raid **enabled**.");
     }
 
-    // --- SPAM DETECTION ---
-    handleSpam(message);
+    if (sub === "off") {
+      antiRaidEnabled.set(interaction.guildId, false);
+      return interaction.reply("❌ Anti-raid **disabled**.");
+    }
+
+    if (sub === "status") {
+      return interaction.reply(
+        `📊 Anti-raid is **${antiRaidEnabled.get(interaction.guildId) ? "ON" : "OFF"}**`
+      );
+    }
+  }
 });
 
-// ===== SPAM HANDLER =====
-async function handleSpam(message) {
-    const userId = message.author.id;
-    const now = Date.now();
+/* ========= AUTOMOD ========= */
 
-    if (!spamMap.has(userId)) spamMap.set(userId, []);
-    const timestamps = spamMap.get(userId);
+client.on("messageCreate", async (message) => {
+  if (!message.guild || message.author.bot) return;
+  if (!automodEnabled.get(message.guild.id)) return;
 
-    timestamps.push(now);
-    spamMap.set(userId, timestamps.filter(ts => now - ts < spamTime));
+  const content = message.content.toLowerCase();
 
-    if (spamMap.get(userId).length > spamLimit && !mutedUsers.has(userId)) {
-        // Mute user
-        const member = message.member;
-        if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            try {
-                const muteRole = message.guild.roles.cache.find(r => r.name.toLowerCase() === "muted");
-                if (muteRole) await member.roles.add(muteRole);
-                else console.log("Create a 'Muted' role for auto-mute to work.");
+  // Bad words
+  if (BAD_WORDS.some(w => content.includes(w))) {
+    await message.delete().catch(() => {});
+    return;
+  }
 
-                mutedUsers.set(userId, Date.now() + muteTime);
-                await message.channel.send(`${member} has been muted for spamming.`).then(msg => {
-                    setTimeout(() => msg.delete().catch(() => {}), 5000);
-                });
-
-                logAction(message.guild.id, `${member.user.tag} muted for spamming`);
-            } catch (err) {
-                console.log(err);
-            }
-        }
+  // Anti-link
+  if (LINK_REGEX.test(message.content)) {
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+      await message.delete().catch(() => {});
+      return;
     }
-}
+  }
 
-// ===== WARNING FUNCTION =====
-async function warnUser(message, reason) {
-    await message.channel.send(`${message.author}, ${reason}`).then(msg => {
-        setTimeout(() => msg.delete().catch(() => {}), 5000);
-    });
-    logAction(message.guild.id, `${message.author.tag} warned: ${reason}`);
-}
+  // Anti-spam
+  const now = Date.now();
+  const data = spamMap.get(message.author.id) || { count: 0, last: now };
 
-// ===== LOGGING FUNCTION =====
-async function logAction(guildId, action) {
-    try {
-        const guild = client.guilds.cache.get(guildId);
-        if (!guild) return;
-        const logChannel = guild.channels.cache.get(logChannelId);
-        if (logChannel) logChannel.send(`📌 ${action}`);
-    } catch (err) {
-        console.log("Logging error:", err);
+  if (now - data.last < SPAM_TIME) {
+    data.count++;
+    if (data.count >= SPAM_LIMIT) {
+      await message.delete().catch(() => {});
+      return;
     }
-}
+  } else {
+    data.count = 1;
+  }
 
-// ===== UNMUTE HANDLER =====
-setInterval(async () => {
-    const now = Date.now();
-    mutedUsers.forEach(async (endTime, userId) => {
-        if (now >= endTime) {
-            mutedUsers.delete(userId);
-            client.guilds.cache.forEach(async guild => {
-                const member = await guild.members.fetch(userId).catch(() => null);
-                if (member) {
-                    const muteRole = guild.roles.cache.find(r => r.name.toLowerCase() === "muted");
-                    if (muteRole && member.roles.cache.has(muteRole.id)) {
-                        member.roles.remove(muteRole).catch(() => {});
-                        logAction(guild.id, `${member.user.tag} has been unmuted automatically.`);
-                    }
-                }
-            });
-        }
+  data.last = now;
+  spamMap.set(message.author.id, data);
+});
+
+/* ========= ANTI RAID ========= */
+
+client.on("guildMemberAdd", async (member) => {
+  if (!antiRaidEnabled.get(member.guild.id)) return;
+
+  const now = Date.now();
+  const joins = joinMap.get(member.guild.id) || [];
+
+  joins.push(now);
+  joinMap.set(
+    member.guild.id,
+    joins.filter(t => now - t < RAID_TIME)
+  );
+
+  if (joinMap.get(member.guild.id).length >= RAID_JOIN_LIMIT) {
+    if (lockedGuilds.has(member.guild.id)) {
+      member.kick("Raid protection").catch(() => {});
+      return;
+    }
+
+    lockedGuilds.add(member.guild.id);
+    console.log(`🚨 RAID DETECTED in ${member.guild.name}`);
+
+    // Lock server
+    const everyone = member.guild.roles.everyone;
+    member.guild.channels.cache.forEach(channel => {
+      channel.permissionOverwrites.edit(everyone, {
+        SendMessages: false
+      }).catch(() => {});
     });
-}, 5000);
+
+    member.kick("Raid protection").catch(() => {});
+
+    // Auto unlock
+    setTimeout(() => {
+      member.guild.channels.cache.forEach(channel => {
+        channel.permissionOverwrites.edit(everyone, {
+          SendMessages: null
+        }).catch(() => {});
+      });
+
+      lockedGuilds.delete(member.guild.id);
+      joinMap.delete(member.guild.id);
+      console.log(`🔓 Server unlocked: ${member.guild.name}`);
+    }, LOCKDOWN_TIME);
+  }
+});
+
+/* ========= LOGIN ========= */
 
 client.login(process.env.TOKEN);
