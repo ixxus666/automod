@@ -153,16 +153,14 @@ client.on("interactionCreate", async interaction => {
   const f = getFeatures(gid);
 
   // Default ephemeral unless one of these commands
-  const publicCommands = ["timeout", "warnings", "kick", "ban"];
-  const ephemeral = !publicCommands.includes(interaction.commandName);
+  const reply = (content) => interaction.reply({ content }); // Always public
 
   // Check Manage Server permission for all except public commands
   if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
     return interaction.reply({ content: "❌ Manage Server required.", ephemeral: true });
   }
 
-  const reply = (content, forceEphemeral = ephemeral) => interaction.reply({ content, ephemeral: forceEphemeral });
-
+  
   // ---------------- AUTOMOD ----------------
   if (interaction.commandName === "automod") {
     const sub = interaction.options.getSubcommand();
