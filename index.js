@@ -9,9 +9,9 @@ const {
 } = require("discord.js");
 
 // ================= CONFIG =================
-const BAD_WORDS = ["nigga", "nigger"];
+const BAD_WORDS = ["nigga", "nigger", "nga"];
 const SPAM_LIMIT = 5;
-const SPAM_TIME = 1000;
+const SPAM_TIME = 10000; // 10 seconds window
 const DUPLICATE_LIMIT = 3;
 const CAPS_PERCENT = 0.7;
 const CAPS_MIN = 8;
@@ -20,7 +20,7 @@ const EMOJI_LIMIT = 6;
 const MIN_ACCOUNT_AGE = 30; // minutes
 const RAID_JOIN_LIMIT = 5;
 const RAID_TIME = 10000;
-const LOCKDOWN_TIME = 300000;
+const LOCKDOWN_TIME = 300000; // 5 minutes
 
 // ==========================================
 
@@ -32,6 +32,7 @@ const duplicateMap = new Map();
 const warnings = new Map();
 const joinMap = new Map();
 const lockedGuilds = new Set();
+const antiRaidEnabled = new Map();
 
 // =============== CLIENT =================
 const client = new Client({
@@ -87,7 +88,13 @@ const commands = [
     .setName("antiraid")
     .setDescription("Enable/disable anti-raid")
     .addSubcommand(sc => sc.setName("on").setDescription("Enable anti-raid"))
-    .addSubcommand(sc => sc.setName("off").setDescription("Disable anti-raid"))
+    .addSubcommand(sc => sc.setName("off").setDescription("Disable anti-raid")),
+  new SlashCommandBuilder()
+    .setName("timeout")
+    .setDescription("Timeout a user")
+    .addUserOption(o => o.setName("user").setDescription("User to timeout").setRequired(true))
+    .addIntegerOption(o => o.setName("minutes").setDescription("Duration in minutes").setRequired(true))
+    .addStringOption(o => o.setName("reason").setDescription("Reason"))
 ];
 
 // =============== HELPERS =================
@@ -113,7 +120,7 @@ function addWarning(gid, uid) {
   return warnings.get(key);
 }
 
-// =============== REGISTER COMMANDS ON STARTUP =================
+// =============== REGISTER COMMANDS =================
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   try {
@@ -129,7 +136,7 @@ client.once("ready", async () => {
 });
 
 // =============== INTERACTION HANDLER =================
-client.on("interactionCreate", async (interaction) => {
+client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
   if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
     return interaction.reply({ content: "❌ Manage Server required.", ephemeral: true });
@@ -166,7 +173,7 @@ client.on("interactionCreate", async (interaction) => {
       if (count === 3) member.timeout(10 * 60 * 1000, "3 warnings").catch(() => {});
       if (count >= 5) member.kick("5 warnings").catch(() => {});
     }
-    return interaction.reply(`⚠️ ${user.tag} warned (**${count}** total)\n📝 ${reason}`);
+    return interaction.reply(`⚠️ ${user.tag} warned (**${count}** total)\n📝 Reason: ${reason}`);
   }
 
   if (interaction.commandName === "warnings") {
@@ -187,10 +194,29 @@ client.on("interactionCreate", async (interaction) => {
     antiRaidEnabled.set(gid, sub === "on");
     return interaction.reply(`🚨 Anti-raid **${sub === "on" ? "enabled" : "disabled"}**.`);
   }
+
+  // Timeout
+  if (interaction.commandName === "timeout") {
+    const user = interaction.options.getUser("user");
+    const minutes = interaction.options.getInteger("minutes");
+    const reason = interaction.options.getString("reason") || "No reason";
+
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+    if (!member) return interaction.reply({ content: "❌ User not found.", ephemeral: true });
+    if (member.permissions.has(PermissionsBitField.Flags.ManageMessages))
+      return interaction.reply({ content: "❌ Cannot timeout a moderator/admin.", ephemeral: true });
+
+    await member.timeout(minutes * 60 * 1000, reason).catch(err => {
+      console.error(err);
+      return interaction.reply({ content: "❌ Failed to timeout user.", ephemeral: true });
+    });
+
+    return interaction.reply(`⏱ ${user.tag} has been timed out for ${minutes} minute(s).\n📝 Reason: ${reason}`);
+  }
 });
 
 // =============== AUTOMOD =================
-client.on("messageCreate", async (message) => {
+client.on("messageCreate", async message => {
   if (!message.guild || message.author.bot) return;
   if (!automodEnabled.get(message.guild.id)) return;
   if (message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
@@ -198,24 +224,28 @@ client.on("messageCreate", async (message) => {
   const f = getFeatures(message.guild.id);
   const content = message.content;
 
+  // Bad words
   if (f.badwords && BAD_WORDS.some(w => content.toLowerCase().includes(w))) {
     await message.delete().catch(() => {});
     addWarning(message.guild.id, message.author.id);
     return;
   }
 
+  // Links
   if (f.links && /https?:\/\//i.test(content)) {
     await message.delete().catch(() => {});
     addWarning(message.guild.id, message.author.id);
     return;
   }
 
+  // Invites
   if (f.invites && /discord\.gg/i.test(content)) {
     await message.delete().catch(() => {});
     addWarning(message.guild.id, message.author.id);
     return;
   }
 
+  // Caps
   if (f.caps) {
     const letters = content.replace(/[^a-zA-Z]/g, "");
     if (letters.length >= CAPS_MIN &&
@@ -226,12 +256,14 @@ client.on("messageCreate", async (message) => {
     }
   }
 
+  // Mentions
   if (f.mentions && (message.mentions.users.size + message.mentions.roles.size) >= MENTION_LIMIT) {
     await message.delete().catch(() => {});
     addWarning(message.guild.id, message.author.id);
     return;
   }
 
+  // Emojis
   if (f.emojis) {
     const emojis = (content.match(/<a?:\w+:\d+>/g) || []).length;
     if (emojis >= EMOJI_LIMIT) {
@@ -241,27 +273,31 @@ client.on("messageCreate", async (message) => {
     }
   }
 
+  // Spam (fixed)
   if (f.spam) {
     const now = Date.now();
-    const data = spamMap.get(message.author.id) || { count: 0, last: now };
-    if (now - data.last < SPAM_TIME) {
-      data.count++;
-      if (data.count >= SPAM_LIMIT) {
-        await message.delete().catch(() => {});
-        message.member.timeout(60_000, "Spam").catch(() => {});
-        return;
-      }
-    } else data.count = 1;
-    data.last = now;
+    const data = spamMap.get(message.author.id) || { count: 0, first: now };
+    if (now - data.first > SPAM_TIME) {
+      data.count = 1;
+      data.first = now;
+    } else data.count++;
     spamMap.set(message.author.id, data);
+    if (data.count >= SPAM_LIMIT) {
+      await message.delete().catch(() => {});
+      message.member.timeout(60_000, "Spam").catch(() => {});
+      spamMap.delete(message.author.id);
+      return;
+    }
   }
 
+  // Duplicates
   if (f.duplicates) {
     const dup = duplicateMap.get(message.author.id) || { text: "", count: 0 };
     if (dup.text === content) {
       dup.count++;
       if (dup.count >= DUPLICATE_LIMIT) {
         await message.delete().catch(() => {});
+        duplicateMap.delete(message.author.id);
         return;
       }
     } else {
@@ -273,8 +309,7 @@ client.on("messageCreate", async (message) => {
 });
 
 // =============== ANTI-RAID =================
-const antiRaidEnabled = new Map();
-client.on("guildMemberAdd", async (member) => {
+client.on("guildMemberAdd", async member => {
   const gid = member.guild.id;
   if (!antiRaidEnabled.get(gid)) return;
 
