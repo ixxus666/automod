@@ -318,18 +318,46 @@ client.on("messageCreate", async message => {
 
   if (f.spam) {
     const now = Date.now();
-    const data = spamMap.get(message.author.id) || { count: 0, first: now };
-    if (now - data.first > SPAM_TIME) {
-      data.count = 1;
-      data.first = now;
-    } else data.count++;
-    spamMap.set(message.author.id, data);
-    if (data.count >= SPAM_LIMIT) {
+    const SPAM_LIMIT = 5;      // Number of messages allowed
+const SPAM_TIME = 10000;   // Time window in ms (10 seconds)
+const spamMap = new Map();
+
+client.on("messageCreate", async message => {
+  if (!message.guild || message.author.bot) return;
+  if (!automodEnabled.get(message.guild.id)) return;
+  if (message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
+
+  const f = getFeatures(message.guild.id);
+  const content = message.content.toLowerCase();
+
+  // Badwords example
+  if (f.badwords && BAD_WORDS.some(w => content.includes(w))) {
+    await message.delete().catch(() => {});
+    addWarning(message.guild.id, message.author.id);
+    return;
+  }
+
+  // === SPAM DETECTION ===
+  if (f.spam) {
+    const now = Date.now();
+    let times = spamMap.get(message.author.id) || [];
+    
+    // Keep only messages within SPAM_TIME
+    times = times.filter(t => now - t < SPAM_TIME);
+    
+    times.push(now); // Add current message
+    spamMap.set(message.author.id, times);
+
+    if (times.length >= SPAM_LIMIT) {
       await message.delete().catch(() => {});
-      message.member.timeout(60_000, "Spam").catch(() => {});
-      spamMap.delete(message.author.id);
+      if (message.member.moderatable) {
+        await message.member.timeout(60_000, "Spam").catch(() => {});
+      }
+      spamMap.set(message.author.id, []); // reset after timeout
       return;
     }
+  }
+});
   }
 
   if (f.duplicates) {
