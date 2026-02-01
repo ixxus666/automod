@@ -9,9 +9,9 @@ const {
 } = require("discord.js");
 
 // ================= CONFIG =================
-const BAD_WORDS = ["nigga", "nigger", "nga"];
+const BAD_WORDS = ["nigga", "nigger","nga"];
 const SPAM_LIMIT = 5;
-const SPAM_TIME = 1000; // 10 seconds
+const SPAM_TIME = 10000; // 10 seconds
 const DUPLICATE_LIMIT = 3;
 const CAPS_PERCENT = 0.7;
 const CAPS_MIN = 8;
@@ -148,26 +148,35 @@ client.once("ready", async () => {
 // =============== INTERACTION HANDLER =================
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
-  if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-    return interaction.reply({ content: "❌ Manage Server required.", ephemeral: true });
-  }
 
   const gid = interaction.guildId;
   const f = getFeatures(gid);
 
-  // Automod commands
+  // Default ephemeral unless one of these commands
+  const publicCommands = ["timeout", "warnings", "kick", "ban"];
+  const ephemeral = !publicCommands.includes(interaction.commandName);
+
+  // Check Manage Server permission for all except public commands
+  if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+    return interaction.reply({ content: "❌ Manage Server required.", ephemeral: true });
+  }
+
+  const reply = (content, forceEphemeral = ephemeral) => interaction.reply({ content, ephemeral: forceEphemeral });
+
+  // ---------------- AUTOMOD ----------------
   if (interaction.commandName === "automod") {
     const sub = interaction.options.getSubcommand();
-    if (sub === "on") automodEnabled.set(gid, true), interaction.reply("🤖 Automod enabled.");
-    if (sub === "off") automodEnabled.set(gid, false), interaction.reply("🤖 Automod disabled.");
+    if (sub === "on") automodEnabled.set(gid, true), reply("🤖 Automod enabled");
+    if (sub === "off") automodEnabled.set(gid, false), reply("🤖 Automod disabled");
     if (sub === "toggle") {
       const feature = interaction.options.getString("feature");
       f[feature] = !f[feature];
-      return interaction.reply(`🎛 Feature **${feature}** is now **${f[feature] ? "ON" : "OFF"}**`);
+      return reply(`🎛 Feature **${feature}** is now **${f[feature] ? "ON" : "OFF"}**`);
     }
+    return;
   }
 
-  // Warning commands
+  // ---------------- WARNINGS ----------------
   if (interaction.commandName === "warn") {
     const user = interaction.options.getUser("user");
     const reason = interaction.options.getString("reason") || "No reason";
@@ -177,83 +186,80 @@ client.on("interactionCreate", async interaction => {
       if (count === 3) member.timeout(10 * 60 * 1000, "3 warnings").catch(() => {});
       if (count >= 5) member.kick("5 warnings").catch(() => {});
     }
-    return interaction.reply(`⚠️ ${user.tag} warned (**${count}** total)\n📝 Reason: ${reason}`);
+    return reply(`⚠️ ${user.tag} warned (**${count}** total)\n📝 Reason: ${reason}`);
   }
 
   if (interaction.commandName === "warnings") {
     const user = interaction.options.getUser("user");
     const count = warnings.get(`${gid}:${user.id}`) || 0;
-    return interaction.reply(`📊 ${user.tag} has **${count}** warning(s).`);
+    return reply(`📊 ${user.tag} has **${count}** warning(s).`, false);
   }
 
   if (interaction.commandName === "clearwarnings") {
     const user = interaction.options.getUser("user");
     warnings.delete(`${gid}:${user.id}`);
-    return interaction.reply(`🧹 Cleared warnings for ${user.tag}.`);
+    return reply(`🧹 Cleared warnings for ${user.tag}`);
   }
 
-  // Anti-raid
+  // ---------------- ANTI-RAID ----------------
   if (interaction.commandName === "antiraid") {
     const sub = interaction.options.getSubcommand();
     antiRaidEnabled.set(gid, sub === "on");
-    return interaction.reply(`🚨 Anti-raid **${sub === "on" ? "enabled" : "disabled"}**.`);
+    return reply(`🚨 Anti-raid **${sub === "on" ? "enabled" : "disabled"}**`);
   }
 
-  // Timeout
+  // ---------------- TIMEOUT ----------------
   if (interaction.commandName === "timeout") {
     const user = interaction.options.getUser("user");
     const minutes = interaction.options.getInteger("minutes");
     const reason = interaction.options.getString("reason") || "No reason";
-
     const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-    if (!member) return interaction.reply({ content: "❌ User not found.", ephemeral: true });
+    if (!member) return reply("❌ User not found.", false);
     if (member.permissions.has(PermissionsBitField.Flags.ManageMessages))
-      return interaction.reply({ content: "❌ Cannot timeout a moderator/admin.", ephemeral: true });
+      return reply("❌ Cannot timeout a moderator/admin.", false);
 
     try {
       await member.timeout(minutes * 60 * 1000, reason);
-      return interaction.reply(`⏱ ${user.tag} has been timed out for ${minutes} minute(s).\n📝 Reason: ${reason}`);
+      return reply(`⏱ ${user.tag} has been timed out for ${minutes} minute(s).\n📝 Reason: ${reason}`, false);
     } catch (err) {
       console.error("Timeout failed:", err);
-      return interaction.reply({ content: `❌ Failed to timeout user. ${err.message}`, ephemeral: true });
+      return reply(`❌ Failed to timeout user. ${err.message}`, false);
     }
   }
 
-  // Kick
+  // ---------------- KICK ----------------
   if (interaction.commandName === "kick") {
     const user = interaction.options.getUser("user");
     const reason = interaction.options.getString("reason") || "No reason";
-
     const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-    if (!member) return interaction.reply({ content: "❌ User not found.", ephemeral: true });
+    if (!member) return reply("❌ User not found.", false);
     if (member.permissions.has(PermissionsBitField.Flags.ManageMessages))
-      return interaction.reply({ content: "❌ Cannot kick a moderator/admin.", ephemeral: true });
+      return reply("❌ Cannot kick a moderator/admin.", false);
 
     try {
       await member.kick(reason);
-      return interaction.reply(`👢 ${user.tag} has been kicked.\n📝 Reason: ${reason}`);
+      return reply(`👢 ${user.tag} has been kicked.\n📝 Reason: ${reason}`, false);
     } catch (err) {
       console.error("Kick failed:", err);
-      return interaction.reply({ content: `❌ Failed to kick user. ${err.message}`, ephemeral: true });
+      return reply(`❌ Failed to kick user. ${err.message}`, false);
     }
   }
 
-  // Ban
+  // ---------------- BAN ----------------
   if (interaction.commandName === "ban") {
     const user = interaction.options.getUser("user");
     const reason = interaction.options.getString("reason") || "No reason";
-
     const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-    if (!member) return interaction.reply({ content: "❌ User not found.", ephemeral: true });
+    if (!member) return reply("❌ User not found.", false);
     if (member.permissions.has(PermissionsBitField.Flags.ManageMessages))
-      return interaction.reply({ content: "❌ Cannot ban a moderator/admin.", ephemeral: true });
+      return reply("❌ Cannot ban a moderator/admin.", false);
 
     try {
       await member.ban({ reason });
-      return interaction.reply(`🔨 ${user.tag} has been banned.\n📝 Reason: ${reason}`);
+      return reply(`🔨 ${user.tag} has been banned.\n📝 Reason: ${reason}`, false);
     } catch (err) {
       console.error("Ban failed:", err);
-      return interaction.reply({ content: `❌ Failed to ban user. ${err.message}`, ephemeral: true });
+      return reply(`❌ Failed to ban user. ${err.message}`, false);
     }
   }
 });
@@ -267,28 +273,24 @@ client.on("messageCreate", async message => {
   const f = getFeatures(message.guild.id);
   const content = message.content;
 
-  // Bad words
   if (f.badwords && BAD_WORDS.some(w => content.toLowerCase().includes(w))) {
     await message.delete().catch(() => {});
     addWarning(message.guild.id, message.author.id);
     return;
   }
 
-  // Links
   if (f.links && /https?:\/\//i.test(content)) {
     await message.delete().catch(() => {});
     addWarning(message.guild.id, message.author.id);
     return;
   }
 
-  // Invites
   if (f.invites && /discord\.gg/i.test(content)) {
     await message.delete().catch(() => {});
     addWarning(message.guild.id, message.author.id);
     return;
   }
 
-  // Caps
   if (f.caps) {
     const letters = content.replace(/[^a-zA-Z]/g, "");
     if (letters.length >= CAPS_MIN &&
@@ -299,14 +301,12 @@ client.on("messageCreate", async message => {
     }
   }
 
-  // Mentions
   if (f.mentions && (message.mentions.users.size + message.mentions.roles.size) >= MENTION_LIMIT) {
     await message.delete().catch(() => {});
     addWarning(message.guild.id, message.author.id);
     return;
   }
 
-  // Emojis
   if (f.emojis) {
     const emojis = (content.match(/<a?:\w+:\d+>/g) || []).length;
     if (emojis >= EMOJI_LIMIT) {
@@ -316,7 +316,6 @@ client.on("messageCreate", async message => {
     }
   }
 
-  // Spam
   if (f.spam) {
     const now = Date.now();
     const data = spamMap.get(message.author.id) || { count: 0, first: now };
@@ -333,7 +332,6 @@ client.on("messageCreate", async message => {
     }
   }
 
-  // Duplicates
   if (f.duplicates) {
     const dup = duplicateMap.get(message.author.id) || { text: "", count: 0 };
     if (dup.text === content) {
