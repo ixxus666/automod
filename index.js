@@ -10,7 +10,7 @@ const {
 
 // ================= CONFIG =================
 const BAD_WORDS = ["nigga", "nigger"];
-const SPAM_LIMIT = 3;
+const SPAM_LIMIT = 5;
 const SPAM_TIME = 3000; // 10 seconds
 const DUPLICATE_LIMIT = 3;
 const CAPS_PERCENT = 0.7;
@@ -153,15 +153,15 @@ client.on("interactionCreate", async interaction => {
   const f = getFeatures(gid);
 
   // Default ephemeral unless one of these commands
-  const publicCommands = ["kick", "ban"];
-  const ephemeral = !isPublic(interaction.commandName);
+  const publicCommands = ["timeout", "warnings", "kick", "ban"];
+  const ephemeral = !publicCommands.includes(interaction.commandName);
 
   // Check Manage Server permission for all except public commands
   if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
     return interaction.reply({ content: "❌ Manage Server required.", ephemeral: true });
   }
-const reply = (content, force=ephemeral) => interaction.reply({ content, ephemeral: force });  
-  
+
+  const reply = (content, forceEphemeral = ephemeral) => interaction.reply({ content, ephemeral: forceEphemeral });
 
   // ---------------- AUTOMOD ----------------
   if (interaction.commandName === "automod") {
@@ -189,17 +189,17 @@ const reply = (content, force=ephemeral) => interaction.reply({ content, ephemer
     return reply(`⚠️ ${user.tag} warned (**${count}** total)\n📝 Reason: ${reason}`);
   }
 
-if(interaction.commandName === "warnings") {
-  const user = interaction.options.getUser("user");
-  const count = warnings.get(`${gid}:${user.id}`) || 0;
-  return reply(`📊 ${user.tag} has **${count}** warning(s).`, false); // visible to everyone
-}
+  if (interaction.commandName === "warnings") {
+    const user = interaction.options.getUser("user");
+    const count = warnings.get(`${gid}:${user.id}`) || 0;
+    return reply(`📊 ${user.tag} has **${count}** warning(s).`, false);
+  }
 
-if(interaction.commandName === "clearwarnings") {
-  const user = interaction.options.getUser("user");
-  warnings.delete(`${gid}:${user.id}`);
-  return reply(`🧹 Cleared warnings for ${user.tag}.`, false); // visible to everyone
-}
+  if (interaction.commandName === "clearwarnings") {
+    const user = interaction.options.getUser("user");
+    warnings.delete(`${gid}:${user.id}`);
+    return reply(`🧹 Cleared warnings for ${user.tag}`);
+  }
 
   // ---------------- ANTI-RAID ----------------
   if (interaction.commandName === "antiraid") {
@@ -318,46 +318,18 @@ client.on("messageCreate", async message => {
 
   if (f.spam) {
     const now = Date.now();
-    const SPAM_LIMIT = 5;      // Number of messages allowed
-const SPAM_TIME = 10000;   // Time window in ms (10 seconds)
-const spamMap = new Map();
-
-client.on("messageCreate", async message => {
-  if (!message.guild || message.author.bot) return;
-  if (!automodEnabled.get(message.guild.id)) return;
-  if (message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
-
-  const f = getFeatures(message.guild.id);
-  const content = message.content.toLowerCase();
-
-  // Badwords example
-  if (f.badwords && BAD_WORDS.some(w => content.includes(w))) {
-    await message.delete().catch(() => {});
-    addWarning(message.guild.id, message.author.id);
-    return;
-  }
-
-  // === SPAM DETECTION ===
-  if (f.spam) {
-    const now = Date.now();
-    let times = spamMap.get(message.author.id) || [];
-    
-    // Keep only messages within SPAM_TIME
-    times = times.filter(t => now - t < SPAM_TIME);
-    
-    times.push(now); // Add current message
-    spamMap.set(message.author.id, times);
-
-    if (times.length >= SPAM_LIMIT) {
+    const data = spamMap.get(message.author.id) || { count: 0, first: now };
+    if (now - data.first > SPAM_TIME) {
+      data.count = 1;
+      data.first = now;
+    } else data.count++;
+    spamMap.set(message.author.id, data);
+    if (data.count >= SPAM_LIMIT) {
       await message.delete().catch(() => {});
-      if (message.member.moderatable) {
-        await message.member.timeout(60_000, "Spam").catch(() => {});
-      }
-      spamMap.set(message.author.id, []); // reset after timeout
+      message.member.timeout(60_000, "Spam").catch(() => {});
+      spamMap.delete(message.author.id);
       return;
     }
-  }
-});
   }
 
   if (f.duplicates) {
