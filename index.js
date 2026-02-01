@@ -188,6 +188,44 @@ client.on("interactionCreate", async interaction => {
     return interaction.reply(`🧹 Cleared warnings for ${user.tag}.`);
   }
 
+  // Kick command
+if (interaction.commandName === "kick") {
+  const user = interaction.options.getUser("user");
+  const reason = interaction.options.getString("reason") || "No reason";
+
+  const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+  if (!member) return interaction.reply({ content: "❌ User not found.", ephemeral: true });
+  if (member.permissions.has(PermissionsBitField.Flags.ManageMessages))
+    return interaction.reply({ content: "❌ Cannot kick a moderator/admin.", ephemeral: true });
+
+  try {
+    await member.kick(reason);
+    return interaction.reply(`👢 ${user.tag} has been kicked.\n📝 Reason: ${reason}`);
+  } catch (err) {
+    console.error("Kick failed:", err);
+    return interaction.reply({ content: `❌ Failed to kick user. ${err.message}`, ephemeral: true });
+  }
+}
+
+// Ban command
+if (interaction.commandName === "ban") {
+  const user = interaction.options.getUser("user");
+  const reason = interaction.options.getString("reason") || "No reason";
+
+  const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+  if (!member) return interaction.reply({ content: "❌ User not found.", ephemeral: true });
+  if (member.permissions.has(PermissionsBitField.Flags.ManageMessages))
+    return interaction.reply({ content: "❌ Cannot ban a moderator/admin.", ephemeral: true });
+
+  try {
+    await member.ban({ reason });
+    return interaction.reply(`🔨 ${user.tag} has been banned.\n📝 Reason: ${reason}`);
+  } catch (err) {
+    console.error("Ban failed:", err);
+    return interaction.reply({ content: `❌ Failed to ban user. ${err.message}`, ephemeral: true });
+  }
+}
+
   // Anti-raid
   if (interaction.commandName === "antiraid") {
     const sub = interaction.options.getSubcommand();
