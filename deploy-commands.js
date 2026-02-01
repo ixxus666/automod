@@ -1,46 +1,19 @@
-const { SlashCommandBuilder } = require("discord.js");
+const { REST, Routes } = require("discord.js");
+const commands = require("./commands"); // your current file
 
-const commands = [
-  new SlashCommandBuilder()
-    .setName("automod")
-    .setDescription("Automod settings")
-    .addSubcommand(sc => sc.setName("on").setDescription("Enable automod"))
-    .addSubcommand(sc => sc.setName("off").setDescription("Disable automod"))
-    .addSubcommand(sc =>
-      sc.setName("toggle")
-        .setDescription("Toggle a feature")
-        .addStringOption(o =>
-          o.setName("feature")
-            .setDescription("Feature name")
-            .setRequired(true)
-            .addChoices(
-              { name: "badwords", value: "badwords" },
-              { name: "links", value: "links" },
-              { name: "invites", value: "invites" },
-              { name: "caps", value: "caps" },
-              { name: "mentions", value: "mentions" },
-              { name: "emojis", value: "emojis" },
-              { name: "spam", value: "spam" },
-              { name: "duplicates", value: "duplicates" }
-            )
-        )
-    ),
+const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-  new SlashCommandBuilder()
-    .setName("warn")
-    .setDescription("Warn a user")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
-    .addStringOption(o => o.setName("reason").setDescription("Reason")),
+(async () => {
+  try {
+    console.log("⏳ Registering slash commands to your server...");
 
-  new SlashCommandBuilder()
-    .setName("warnings")
-    .setDescription("Check warnings")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true)),
+    await rest.put(
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+      { body: commands }
+    );
 
-  new SlashCommandBuilder()
-    .setName("clearwarnings")
-    .setDescription("Clear warnings")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
-];
-
-module.exports = commands.map(c => c.toJSON());
+    console.log("✅ Slash commands registered successfully!");
+  } catch (error) {
+    console.error(error);
+  }
+})();
