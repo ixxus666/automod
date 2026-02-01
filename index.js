@@ -1,13 +1,12 @@
-const {
-  Client,
-  GatewayIntentBits,
-  Partials,
-  PermissionsBitField,
-  REST,
-  Routes,
-  SlashCommandBuilder
+const { 
+  Client, 
+  GatewayIntentBits, 
+  Partials, 
+  PermissionsBitField, 
+  REST, 
+  Routes, 
+  SlashCommandBuilder 
 } = require("discord.js");
-const fetch = require("node-fetch");
 
 // ================= CONFIG =================
 const BAD_WORDS = ["nigga", "nigger"];
@@ -36,7 +35,7 @@ const antiRaidEnabled = new Map();
 const mutedUsers = new Map();
 const warnLimit = new Map();
 
-// =============== CLIENT =================
+// ================= CLIENT =================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -75,7 +74,7 @@ function getWarnLimit(gid) {
 }
 
 function isPublic(command) {
-  return ["timeout", "warnings", "kick", "ban", "userinfo", "serverinfo"].includes(command);
+  return ["timeout", "warnings", "kick", "ban"].includes(command);
 }
 
 // ================= COMMANDS =================
@@ -85,24 +84,20 @@ const commands = [
     .setDescription("Automod settings")
     .addSubcommand(sc => sc.setName("on").setDescription("Enable automod"))
     .addSubcommand(sc => sc.setName("off").setDescription("Disable automod"))
-    .addSubcommand(sc =>
-      sc.setName("toggle")
-        .setDescription("Toggle a feature")
-        .addStringOption(o =>
-          o.setName("feature")
-            .setDescription("Feature name")
-            .setRequired(true)
-            .addChoices(
-              { name: "badwords", value: "badwords" },
-              { name: "links", value: "links" },
-              { name: "invites", value: "invites" },
-              { name: "caps", value: "caps" },
-              { name: "mentions", value: "mentions" },
-              { name: "emojis", value: "emojis" },
-              { name: "spam", value: "spam" },
-              { name: "duplicates", value: "duplicates" }
-            )
+    .addSubcommand(sc => sc.setName("toggle")
+      .setDescription("Toggle a feature")
+      .addStringOption(o => o.setName("feature").setDescription("Feature name").setRequired(true)
+        .addChoices(
+          { name: "badwords", value: "badwords" },
+          { name: "links", value: "links" },
+          { name: "invites", value: "invites" },
+          { name: "caps", value: "caps" },
+          { name: "mentions", value: "mentions" },
+          { name: "emojis", value: "emojis" },
+          { name: "spam", value: "spam" },
+          { name: "duplicates", value: "duplicates" }
         )
+      )
     ),
   new SlashCommandBuilder()
     .setName("warn")
@@ -142,56 +137,6 @@ const commands = [
     .setDescription("Ban a user")
     .addUserOption(o => o.setName("user").setDescription("User to ban").setRequired(true))
     .addStringOption(o => o.setName("reason").setDescription("Reason")),
-  new SlashCommandBuilder()
-    .setName("mute")
-    .setDescription("Mute a user")
-    .addUserOption(o => o.setName("user").setDescription("User to mute").setRequired(true)),
-  new SlashCommandBuilder()
-    .setName("unmute")
-    .setDescription("Unmute a user")
-    .addUserOption(o => o.setName("user").setDescription("User to unmute").setRequired(true)),
-  new SlashCommandBuilder()
-    .setName("purge")
-    .setDescription("Delete multiple messages")
-    .addIntegerOption(o => o.setName("amount").setDescription("Number of messages").setRequired(true)),
-  new SlashCommandBuilder()
-    .setName("lock")
-    .setDescription("Lock a channel"),
-  new SlashCommandBuilder()
-    .setName("unlock")
-    .setDescription("Unlock a channel"),
-  new SlashCommandBuilder()
-    .setName("slowmode")
-    .setDescription("Set channel slowmode")
-    .addIntegerOption(o => o.setName("seconds").setDescription("Seconds per message").setRequired(true)),
-  new SlashCommandBuilder()
-    .setName("userinfo")
-    .setDescription("Show user info")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(false)),
-  new SlashCommandBuilder()
-    .setName("serverinfo")
-    .setDescription("Show server info"),
-  new SlashCommandBuilder()
-    .setName("ping")
-    .setDescription("Bot latency"),
-  new SlashCommandBuilder()
-    .setName("avatar")
-    .setDescription("Show user's avatar")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(false)),
-  new SlashCommandBuilder()
-    .setName("role")
-    .setDescription("Add/Remove role")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
-    .addRoleOption(o => o.setName("role").setDescription("Role").setRequired(true)),
-  new SlashCommandBuilder()
-    .setName("roll")
-    .setDescription("Roll a dice"),
-  new SlashCommandBuilder()
-    .setName("coinflip")
-    .setDescription("Flip a coin"),
-  new SlashCommandBuilder()
-    .setName("meme")
-    .setDescription("Get a random meme")
 ];
 
 // ================= REGISTER COMMANDS =================
@@ -213,13 +158,106 @@ client.once("ready", async () => {
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const gid = interaction.guildId;
-  const f = getFeatures(gid);
   const ephemeral = !isPublic(interaction.commandName);
   const reply = (content, forceEphemeral = ephemeral) => interaction.reply({ content, ephemeral: forceEphemeral });
 
-  // … Your command handling logic (warnings, automod, moderation, utility, fun) goes here …
-  // This part is long but follows the pattern of checking interaction.commandName,
-  // fetching options, checking permissions, and replying accordingly.
+  // === AUTOMOD ===
+  if (interaction.commandName === "automod") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) return reply("❌ Manage Server required.");
+    const sub = interaction.options.getSubcommand();
+    const f = getFeatures(gid);
+    if (sub === "on") automodEnabled.set(gid, true), reply("🤖 Automod enabled.");
+    else if (sub === "off") automodEnabled.set(gid, false), reply("🤖 Automod disabled.");
+    else if (sub === "toggle") {
+      const feature = interaction.options.getString("feature");
+      f[feature] = !f[feature];
+      reply(`🎛 Feature **${feature}** is now **${f[feature] ? "ON" : "OFF"}**`);
+    }
+  }
+
+  // === WARNINGS ===
+  if (interaction.commandName === "warn") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers)) return reply("❌ Kick Members required.");
+    const user = interaction.options.getUser("user");
+    const reason = interaction.options.getString("reason") || "No reason";
+    const count = addWarning(gid, user.id);
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+    if (member) {
+      if (count === 3) member.timeout(10 * 60 * 1000, "3 warnings").catch(() => {});
+      if (count >= getWarnLimit(gid)) member.kick("Warn limit reached").catch(() => {});
+    }
+    return reply(`⚠️ ${user.tag} warned (**${count}** total)\n📝 ${reason}`);
+  }
+
+  if (interaction.commandName === "warnings") {
+    const user = interaction.options.getUser("user");
+    const count = warnings.get(`${gid}:${user.id}`) || 0;
+    return reply(`📊 ${user.tag} has **${count}** warning(s).`);
+  }
+
+  if (interaction.commandName === "clearwarnings") {
+    const user = interaction.options.getUser("user");
+    warnings.delete(`${gid}:${user.id}`);
+    return reply(`🧹 Cleared warnings for ${user.tag}.`);
+  }
+
+  if (interaction.commandName === "setwarnlimit") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) return reply("❌ Manage Server required.");
+    const amount = interaction.options.getInteger("amount");
+    warnLimit.set(gid, amount);
+    return reply(`⚠️ Warning limit set to ${amount}`);
+  }
+
+  // === ANTI-RAID ===
+  if (interaction.commandName === "antiraid") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) return reply("❌ Manage Server required.");
+    const sub = interaction.options.getSubcommand();
+    antiRaidEnabled.set(gid, sub === "on");
+    return reply(`🚨 Anti-raid **${sub === "on" ? "enabled" : "disabled"}**`);
+  }
+
+  // === TIMEOUT ===
+  if (interaction.commandName === "timeout") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ModerateMembers))
+      return reply("❌ Timeout Members required.");
+    const user = interaction.options.getUser("user");
+    const minutes = interaction.options.getInteger("minutes");
+    const reason = interaction.options.getString("reason") || "No reason";
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+    if (!member) return reply("❌ User not found.");
+    await interaction.deferReply({ ephemeral: true });
+    member.timeout(minutes * 60 * 1000, reason)
+      .then(() => interaction.editReply(`✅ ${user.tag} has been timed out for **${minutes} minute(s)**.`))
+      .catch(err => interaction.editReply(`❌ Failed to timeout user: ${err.message}`));
+  }
+
+  // === KICK ===
+  if (interaction.commandName === "kick") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers))
+      return reply("❌ Kick Members required.");
+    const user = interaction.options.getUser("user");
+    const reason = interaction.options.getString("reason") || "No reason";
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+    if (!member) return reply("❌ User not found.");
+    await interaction.deferReply({ ephemeral: true });
+    member.kick(reason)
+      .then(() => interaction.editReply(`✅ ${user.tag} has been kicked.`))
+      .catch(err => interaction.editReply(`❌ Failed to kick user: ${err.message}`));
+  }
+
+  // === BAN ===
+  if (interaction.commandName === "ban") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers))
+      return reply("❌ Ban Members required.");
+    const user = interaction.options.getUser("user");
+    const reason = interaction.options.getString("reason") || "No reason";
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+    if (!member) return reply("❌ User not found.");
+    await interaction.deferReply({ ephemeral: true });
+    member.ban({ reason })
+      .then(() => interaction.editReply(`✅ ${user.tag} has been banned.`))
+      .catch(err => interaction.editReply(`❌ Failed to ban user: ${err.message}`));
+  }
 });
 
 // ================= AUTOMOD =================
@@ -229,78 +267,12 @@ client.on("messageCreate", async message => {
   if (message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
 
   const f = getFeatures(message.guild.id);
-  const content = message.content;
+  const content = message.content.toLowerCase();
 
-  if (f.badwords && BAD_WORDS.some(w => content.toLowerCase().includes(w))) {
+  if (f.badwords && BAD_WORDS.some(w => content.includes(w))) {
     await message.delete().catch(() => {});
     addWarning(message.guild.id, message.author.id);
     return;
-  }
-
-  if (f.links && /https?:\/\//i.test(content)) {
-    await message.delete().catch(() => {});
-    addWarning(message.guild.id, message.author.id);
-    return;
-  }
-
-  if (f.invites && /discord\.gg/i.test(content)) {
-    await message.delete().catch(() => {});
-    addWarning(message.guild.id, message.author.id);
-    return;
-  }
-
-  if (f.caps) {
-    const letters = content.replace(/[^a-zA-Z]/g, "");
-    if (letters.length >= CAPS_MIN && letters.replace(/[^A-Z]/g, "").length / letters.length >= CAPS_PERCENT) {
-      await message.delete().catch(() => {});
-      addWarning(message.guild.id, message.author.id);
-      return;
-    }
-  }
-
-  if (f.mentions && (message.mentions.users.size + message.mentions.roles.size) >= MENTION_LIMIT) {
-    await message.delete().catch(() => {});
-    addWarning(message.guild.id, message.author.id);
-    return;
-  }
-
-  if (f.emojis) {
-    const emojis = (content.match(/<a?:\w+:\d+>/g) || []).length;
-    if (emojis >= EMOJI_LIMIT) {
-      await message.delete().catch(() => {});
-      addWarning(message.guild.id, message.author.id);
-      return;
-    }
-  }
-
-  if (f.spam) {
-    const now = Date.now();
-    const data = spamMap.get(message.author.id) || { count: 0, last: now };
-    if (now - data.last < SPAM_TIME) {
-      data.count++;
-      if (data.count >= SPAM_LIMIT) {
-        await message.delete().catch(() => {});
-        message.member.timeout(60_000, "Spam").catch(() => {});
-        return;
-      }
-    } else data.count = 1;
-    data.last = now;
-    spamMap.set(message.author.id, data);
-  }
-
-  if (f.duplicates) {
-    const dup = duplicateMap.get(message.author.id) || { text: "", count: 0 };
-    if (dup.text === content) {
-      dup.count++;
-      if (dup.count >= DUPLICATE_LIMIT) {
-        await message.delete().catch(() => {});
-        return;
-      }
-    } else {
-      dup.text = content;
-      dup.count = 1;
-    }
-    duplicateMap.set(message.author.id, dup);
   }
 });
 
