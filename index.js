@@ -17,7 +17,7 @@ const client = new Client({
 
 /* =============== CONFIG =============== */
 
-const BAD_WORDS = ["badword1", "badword2"];
+const BAD_WORDS = ["nigga", "nigger"];
 const SPAM_LIMIT = 5;
 const SPAM_TIME = 5000;
 const DUPLICATE_LIMIT = 3;
