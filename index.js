@@ -9,7 +9,7 @@ const {
 } = require("discord.js");
 
 // ================= CONFIG =================
-const BAD_WORDS = ["badword1", "badword2"];
+const BAD_WORDS = ["daddy", "nigger", "nigga", "nga"];
 const SPAM_LIMIT = 5;
 const SPAM_TIME = 10000; // 10 seconds
 const DUPLICATE_LIMIT = 3;
